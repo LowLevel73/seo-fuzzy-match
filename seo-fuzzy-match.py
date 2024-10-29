@@ -1,10 +1,16 @@
-__version__ = '0.9.0'
+__version__ = '0.9.1'
 __author__ = 'Enrico Altavilla'
 
+import re
+import warnings
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from tkinter import Tk, filedialog
+
+
+
+
 
 def select_file(title, filetypes):
     '''
@@ -15,7 +21,7 @@ def select_file(title, filetypes):
     filetypes (list): A list of tuples, where each tuple contains a description and a file extension pattern.
 
     Returns:
-    str: The path of the selected file.    
+    str: The path of the selected file.
     '''
     root = Tk()
     root.attributes('-topmost', True)  # Ensure the dialog is on top
@@ -40,12 +46,12 @@ def get_user_input():
         str: The path of the source URLs file.
     '''
 
-    old_file = select_file("Select the old website file", [("Excel files", "*.xlsx"), ("CSV files", "*.csv")])
+    old_file = select_file("Select the OLD website file", [("Excel files", "*.xlsx"), ("CSV files", "*.csv")])
     if not old_file:
         print("Old website file must be provided. Exiting...")
         exit(1)
     
-    new_file = select_file("Select the new website file", [("Excel files", "*.xlsx"), ("CSV files", "*.csv")])
+    new_file = select_file("Select the NEW website file", [("Excel files", "*.xlsx"), ("CSV files", "*.csv")])
     if not new_file:
         print("New website file must be provided. Exiting...")
         exit(1)
@@ -81,21 +87,25 @@ def read_file(file_path):
     str: The name of the sheet if the file is an Excel file, otherwise None.
     '''
 
-    print(f"Reading file: {file_path}")
-    if file_path.endswith('.csv'):
-        return pd.read_csv(file_path), None
-    elif file_path.endswith('.xlsx'):
-        xls = pd.ExcelFile(file_path)
-        if len(xls.sheet_names) > 1:
-            print("Multiple sheets found:")
-            for idx, sheet in enumerate(xls.sheet_names):
-                print(f"{idx}: {sheet}")
-            sheet_idx = int(input("Enter the number of the sheet to use: "))
-            return pd.read_excel(xls, sheet_name=xls.sheet_names[sheet_idx]), xls.sheet_names[sheet_idx]
+    # Suppress openpyxl warning about missing default style
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning, module=re.escape('openpyxl.styles.stylesheet'))
+
+        print(f"Reading file: {file_path}")
+        if file_path.endswith('.csv'):
+            return pd.read_csv(file_path), None
+        elif file_path.endswith('.xlsx'):
+            xls = pd.ExcelFile(file_path)
+            if len(xls.sheet_names) > 1:
+                print("Multiple sheets found:")
+                for idx, sheet in enumerate(xls.sheet_names):
+                    print(f"{idx}: {sheet}")
+                sheet_idx = int(input("Enter the number of the sheet to use: "))
+                return pd.read_excel(xls, sheet_name=xls.sheet_names[sheet_idx]), xls.sheet_names[sheet_idx]
+            else:
+                return pd.read_excel(xls), xls.sheet_names[0]
         else:
-            return pd.read_excel(xls), xls.sheet_names[0]
-    else:
-        raise ValueError("Unsupported file format. Please use CSV or Excel files.")
+            raise ValueError("Unsupported file format. Please use CSV or Excel files.")
 
 
 def select_url_column(data, description):
@@ -109,14 +119,20 @@ def select_url_column(data, description):
     Returns:
     str: The name of the selected column.
     '''
+    
+    # Find the columns containing in their name a keyword that suggests they contain URLs or addresses
+    url_keywords = ['url', 'address', 'source', 'destination']
+    columns = [col for col in data.columns if any(keyword in col.lower() for keyword in url_keywords)]
 
-    columns = [col for col in data.columns if 'url' in col.lower() or 'address' in col.lower()]
     if not columns:
         raise ValueError(f"No columns containing 'url' or 'address' found for {description}.")
+    
     print(f"Select the {description}:")
     for idx, col in enumerate(columns):
         print(f"{idx}: {col}")
+    
     col_idx = int(input("Enter the number of the column: "))
+    
     return columns[col_idx]
 
 
@@ -173,15 +189,19 @@ def calculate_similarity(old_data, new_data, old_url_column, old_text_columns, n
     np.ndarray: The similarity matrix between the old and new data.
     '''
 
+    # If the user only wants to consider a subset of the URLs, filter the data accordingly
     if source_urls is not None:
         old_data = old_data[old_data[old_url_column].isin(source_urls)]
-    
+
+    # Combine the text features into a single column    
     old_texts = old_data[old_text_columns].fillna('').agg(' '.join, axis=1)
     new_texts = new_data[new_text_columns].fillna('').agg(' '.join, axis=1)
     
     # We combine the old and new texts to create a common vocabulary for the vectorizer
     combined_texts = old_texts.tolist() + new_texts.tolist()
     
+    # Create a TF-IDF vectorizer and fit it on the combined texts
+    # This operation cleans the text and creates a vocabulary
     vectorizer = TfidfVectorizer()
     vectorizer.fit(combined_texts)
 
@@ -189,7 +209,9 @@ def calculate_similarity(old_data, new_data, old_url_column, old_text_columns, n
     tfidf_matrix_old = vectorizer.transform(old_texts)
     tfidf_matrix_new = vectorizer.transform(new_texts)
     
-    # Calculate the cosine similarity between the old and new texts
+    # Calculate the cosine similarity between the old and new texts.
+    # This is OK for small datasets, but it's a waste of memory anyway.
+    # For larger datasets, we should calculate the similarity in batches.
     similarity_matrix = cosine_similarity(tfidf_matrix_old, tfidf_matrix_new)
     return similarity_matrix
 
@@ -209,7 +231,7 @@ def find_best_matches(similarity_matrix, old_urls, new_urls):
 
     best_matches = []
     for idx, similarities in enumerate(similarity_matrix):
-        # Find the index of the new URL with the highest similarity to the old URL
+        # Find the index of the new resource that has the highest similarity to the old resource
         best_match_idx = similarities.argmax()
 
         # Append the best match to the list
@@ -232,14 +254,22 @@ def save_matches(matches, output_file='url_mapping.csv'):
 
 
 def main():
+
+    # Get user input
     old_data, new_data, old_url_column, new_url_column, old_text_columns, new_text_columns, source_urls_file = get_user_input()
-    
+
+    # If the user only wants to consider a subset of the source URLs, we read them from a textual file    
     source_urls = read_source_urls(source_urls_file)
-    
+
+    # Calculate the similarity between the old and new data
+    # It's OK to calculate the similarity matrix in memory for small datasets
+    # For larger datasets, we should calculate the similarity in batches    
     similarity_matrix = calculate_similarity(old_data, new_data, old_url_column, old_text_columns, new_text_columns, source_urls)
-    
+
+    # For each old resource, find the most similar new resource    
     best_matches = find_best_matches(similarity_matrix, old_data[old_url_column].tolist(), new_data[new_url_column].tolist())
     
+    # Save the best matches to a CSV file
     save_matches(best_matches, 'url_mapping.csv')
 
 if __name__ == "__main__":
