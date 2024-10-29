@@ -3,7 +3,7 @@
 
 **SEO Fuzzy Match** is a Python script that facilitates URL redirection during website migrations. It compares content from an old and updated version of a website, using Excel/CSV data from website crawlers like Screaming Frog SEO Spider, to automatically suggest which URLs in the new site correspond to old ones.
 
-This tool is ideal for SEO specialists who need to create URL redirects efficiently during migrations.
+This tool is ideal for those tricky situations where URLs and contents have **changed between website versions**. By comparing the content of the old and new resources, SEO Fuzzy Match can help you identify the best matches and create a redirection plan.
 
 ## Features
 
