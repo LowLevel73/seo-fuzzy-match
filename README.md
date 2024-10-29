@@ -34,12 +34,12 @@ pip install pandas scikit-learn
    ```bash
    python seo-fuzzy-match.py
    ```
-2. Select the old and new website data files when prompted.
-3. Choose the column indices for URLs in both the old and new datasets.
+2. Select the old and new website data files when prompted. Each file should contain a list of URLs and their text features (e.g., page titles, meta descriptions), typically exported from a website crawler.
+3. Select the column indices for the source URLs in the old data and the target URLs in the new data.
 4. Select the column indices for text features to compare. You can select multiple columns by separating them with commas (e.g., 1,2,3).
 5. (Optional) Select a source URL text file to limit the URLs considered in the old website. The file should contain one URL per line.
 
-The script will output a CSV file (`url_mapping.csv`) with the old URLs, new URLs, and a similarity score, indicating the best URL matches.
+The script will output a CSV file (`url_mapping.csv`) with the old URLs, new URLs, and a similarity score, indicating how strong the match is between the old and new content.
 
 ### Choosing the Best Features
 
